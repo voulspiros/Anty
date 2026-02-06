@@ -18,6 +18,8 @@ use crate::report::merger;
 pub struct Scanner {
     /// Root path to scan
     scan_path: PathBuf,
+    /// Display path (user-provided, not canonicalized)
+    display_path: PathBuf,
     /// Agents to run
     agents: Vec<Box<dyn SecurityAgent>>,
     /// Maximum file size (bytes)
@@ -29,14 +31,21 @@ pub struct Scanner {
     /// Only scan changed files
     #[allow(dead_code)]
     changed_only: bool,
+    /// Maximum number of findings to report (0 = unlimited)
+    max_findings: usize,
 }
 
 impl Scanner {
     pub fn new(_cli: &Cli, args: &ScanArgs) -> Result<Self> {
         let scan_path = std::fs::canonicalize(&args.path)?;
 
-        // Load optional config
-        let config = AntyConfig::load(&scan_path);
+        // Load optional config (skip if --no-config)
+        let config = if args.no_config {
+            info!("Ignoring .anty.toml (--no-config)");
+            None
+        } else {
+            AntyConfig::load(&scan_path)
+        };
 
         // Determine which agents to run
         let agents = if let Some(ref names) = args.agents {
@@ -61,11 +70,13 @@ impl Scanner {
 
         Ok(Scanner {
             scan_path,
+            display_path: PathBuf::from(&args.path),
             agents,
             max_file_size: args.max_file_size,
             include,
             exclude,
             changed_only: args.changed_only,
+            max_findings: args.max_findings,
         })
     }
 
@@ -144,7 +155,13 @@ impl Scanner {
         info!("Raw findings: {}", all_findings.len());
 
         // Step 4: Merge, dedup, and sort
-        let findings = merger::merge_findings(all_findings);
+        let mut findings = merger::merge_findings(all_findings);
+
+        // Apply --max-findings limit
+        if self.max_findings > 0 && findings.len() > self.max_findings {
+            findings.truncate(self.max_findings);
+            info!("Truncated to {} findings (--max-findings)", self.max_findings);
+        }
 
         info!("Final findings after dedup: {}", findings.len());
 
@@ -154,7 +171,7 @@ impl Scanner {
         Ok(ScanReport {
             version: env!("CARGO_PKG_VERSION").to_string(),
             timestamp: chrono::Utc::now().to_rfc3339(),
-            scan_path: self.scan_path.clone(),
+            scan_path: self.display_path.clone(),
             files_scanned,
             files_skipped,
             duration_ms: duration.as_millis() as u64,

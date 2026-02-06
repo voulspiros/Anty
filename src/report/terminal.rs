@@ -49,8 +49,9 @@ pub fn render(report: &ScanReport) {
         let evidence = finding.evidence.trim();
         if !evidence.is_empty() {
             for line in evidence.lines().take(3) {
-                let trimmed = if line.len() > 120 {
-                    format!("{}…", &line[..119])
+                let trimmed = if line.chars().count() > 120 {
+                    let truncated: String = line.chars().take(119).collect();
+                    format!("{}…", truncated)
                 } else {
                     line.to_string()
                 };

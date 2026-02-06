@@ -294,7 +294,6 @@ impl SecretsAgent {
     }
 
     /// Redact the actual secret value in evidence
-    #[allow(dead_code)]
     fn redact_evidence(line: &str, secret_match: &str) -> String {
         if secret_match.len() <= 8 {
             return line.replace(secret_match, "****");
@@ -333,10 +332,10 @@ impl SecurityAgent for SecretsAgent {
 
             for pattern in &self.patterns {
                 if let Some(m) = pattern.pattern.find(line) {
-                    let _matched_text = m.as_str().trim();
+                    let matched_text = m.as_str().trim();
 
-                    // Build evidence
-                    let evidence = line.trim().to_string();
+                    // Build evidence with redacted secrets
+                    let evidence = Self::redact_evidence(line.trim(), matched_text);
 
                     let finding = Finding {
                         id: Finding::generate_id(

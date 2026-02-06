@@ -51,4 +51,13 @@ pub struct ScanArgs {
     /// Agents to run (comma-separated). Default: all
     #[arg(long)]
     pub agents: Option<String>,
+
+    /// Ignore .anty.toml config files found in the scanned repository.
+    /// Recommended when scanning untrusted code.
+    #[arg(long)]
+    pub no_config: bool,
+
+    /// Maximum number of findings to report (0 = unlimited)
+    #[arg(long, default_value = "1000")]
+    pub max_findings: usize,
 }

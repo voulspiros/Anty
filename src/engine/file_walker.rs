@@ -27,9 +27,19 @@ pub fn walk_files(
         .follow_links(false)   // don't follow symlinks
         .max_filesize(Some(max_file_size));
 
-    // Add custom ignore patterns
-    for pattern in exclude {
-        builder.add_custom_ignore_filename(pattern);
+    // Add custom exclude patterns via overrides
+    if !exclude.is_empty() {
+        let mut overrides = ignore::overrides::OverrideBuilder::new(root);
+        for pattern in exclude {
+            // Negate the pattern so matching files are excluded
+            let neg = format!("!{}", pattern);
+            if let Err(e) = overrides.add(&neg) {
+                tracing::warn!("Invalid exclude pattern '{}': {}", pattern, e);
+            }
+        }
+        if let Ok(built) = overrides.build() {
+            builder.overrides(built);
+        }
     }
 
     let mut files = Vec::new();
