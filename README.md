@@ -17,18 +17,42 @@ Anty scans your source code for security issues. It works **locally**, never upl
 
 ## Quick Install
 
-**Linux / macOS:**
+**macOS / Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/voulspiros/Anty/main/install.sh | sh
+curl -fsSL https://anty.dev/install.sh | sh
 ```
 
-**Windows:**
-Download `anty-windows-x86_64.exe` from [Releases](https://github.com/voulspiros/Anty/releases).
+**Windows (PowerShell):**
+```powershell
+irm https://anty.dev/install.ps1 | iex
+```
+
+Then open a new terminal and run:
+```bash
+anty
+```
+
+<details>
+<summary>Alternative install methods</summary>
+
+**Direct URLs** (if anty.dev is not set up yet):
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/voulspiros/Anty/main/install.sh | sh
+
+# Windows PowerShell
+irm https://raw.githubusercontent.com/voulspiros/Anty/main/install.ps1 | iex
+```
 
 **From source:**
 ```bash
 cargo install --path .
 ```
+
+**Manual download:**
+Download the binary for your platform from [Releases](https://github.com/voulspiros/Anty/releases).
+
+</details>
 
 ## Usage
 
@@ -137,11 +161,21 @@ Or run `anty init` to generate a default config.
 
 ## CI/CD Integration
 
+**GitHub Actions (Linux/macOS):**
 ```yaml
-# GitHub Actions
 - name: Security Scan
   run: |
     curl -fsSL https://raw.githubusercontent.com/voulspiros/Anty/main/install.sh | sh
+    export PATH="$HOME/.anty/bin:$PATH"
+    anty scan . --fail-on HIGH --format json --out anty-report.json
+```
+
+**GitHub Actions (Windows):**
+```yaml
+- name: Security Scan
+  shell: pwsh
+  run: |
+    irm https://raw.githubusercontent.com/voulspiros/Anty/main/install.ps1 | iex
     anty scan . --fail-on HIGH --format json --out anty-report.json
 ```
 
