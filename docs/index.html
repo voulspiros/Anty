@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Anty Install</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        margin: 0;
+        padding: 48px 20px;
+        background: #f7f7f3;
+        color: #1c1c1c;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 28px;
+        margin: 0 0 12px;
+      }
+      p {
+        margin: 0 0 24px;
+        font-size: 16px;
+      }
+      .card {
+        background: #ffffff;
+        border: 1px solid #e2e2e2;
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .label {
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+      code {
+        display: block;
+        white-space: nowrap;
+        overflow-x: auto;
+        padding: 12px;
+        background: #111827;
+        color: #f9fafb;
+        border-radius: 8px;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Anty Install</h1>
+      <p>Single binary. Local-first. No uploads.</p>
+
+      <div class="card">
+        <div class="label">Windows PowerShell</div>
+        <code>irm https://voulspiros.github.io/Anty/install.ps1 | iex</code>
+      </div>
+
+      <div class="card">
+        <div class="label">macOS / Linux</div>
+        <code>curl -fsSL https://voulspiros.github.io/Anty/install.sh | sh</code>
+      </div>
+    </main>
+  </body>
+</html>

@@ -15,19 +15,20 @@ Like a team of security reviewers reading your code.
 
 Anty scans your source code for security issues. It works **locally**, never uploads your code, and gives **fast feedback**.
 
-## Quick Install
+## Install
 
 **macOS / Linux:**
 ```bash
-curl -fsSL https://anty.dev/install.sh | sh
+curl -fsSL https://voulspiros.github.io/Anty/install.sh | sh
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://anty.dev/install.ps1 | iex
+irm https://voulspiros.github.io/Anty/install.ps1 | iex
 ```
 
-Then open a new terminal and run:
+Restart terminal after install on Windows.
+Then run:
 ```bash
 anty
 ```
@@ -35,7 +36,7 @@ anty
 <details>
 <summary>Alternative install methods</summary>
 
-**Direct URLs** (if anty.dev is not set up yet):
+**Direct URLs** (if GitHub Pages is not available):
 ```bash
 # macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/voulspiros/Anty/main/install.sh | sh
