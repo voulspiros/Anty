@@ -14,6 +14,25 @@ use cli::Cli;
 use engine::Scanner;
 
 fn main() -> Result<()> {
+    let raw_args: Vec<String> = std::env::args().collect();
+
+    // ── Wizard / drag-drop detection (before clap parsing) ──────────
+    if raw_args.len() == 1 {
+        // No arguments at all → interactive wizard
+        return cli::wizard::run_wizard();
+    }
+
+    if raw_args.len() == 2 {
+        let candidate = std::path::Path::new(&raw_args[1]);
+        // If the single argument is an existing directory AND not a known
+        // subcommand, treat it as a drag-and-drop folder.
+        let known_commands = ["scan", "init", "list-rules", "help", "-h", "--help", "-V", "--version", "-v", "--verbose", "-q", "--quiet"];
+        if candidate.is_dir() && !known_commands.contains(&raw_args[1].as_str()) {
+            return cli::wizard::run_drag_drop(candidate);
+        }
+    }
+
+    // ── Normal clap flow ────────────────────────────────────────────
     // Parse CLI arguments
     let cli = Cli::parse();
 
