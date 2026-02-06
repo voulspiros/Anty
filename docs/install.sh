@@ -2,8 +2,7 @@
 set -eu
 
 REPO="voulspiros/Anty"
-BASE_URL="https://github.com/$REPO/releases/latest/download"
-CHECKSUMS_URL="$BASE_URL/SHA256SUMS.txt"
+API_URL="https://api.github.com/repos/$REPO/releases/latest"
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -37,12 +36,41 @@ trap cleanup EXIT
 
 echo "Installing ANTY..."
 
-curl -fsSL "$BASE_URL/$ASSET" -o "$BIN_PATH"
+HTTP_CODE="$(curl -sL -o "$TMP_DIR/release.json" -w "%{http_code}" -H "User-Agent: anty-installer" "$API_URL")"
+case "$HTTP_CODE" in
+  200) ;;
+  404)
+    echo "Error: No GitHub Release found. Publish a release by pushing a version tag (e.g. git tag v0.1.0 && git push origin v0.1.0)."
+    exit 1
+    ;;
+  403)
+    echo "Error: GitHub API rate limit exceeded. Try again later."
+    exit 1
+    ;;
+  *)
+    echo "Error: Failed to fetch release info (HTTP $HTTP_CODE)."
+    exit 1
+    ;;
+esac
+
+TAG="$(sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p' "$TMP_DIR/release.json" | head -n 1)"
+if [ -z "$TAG" ]; then
+  echo "Error: Could not determine release tag."
+  exit 1
+fi
+
+echo "Found release: $TAG"
+
+DOWNLOAD_BASE="https://github.com/$REPO/releases/download/$TAG"
+BINARY_URL="$DOWNLOAD_BASE/$ASSET"
+CHECKSUMS_URL="$DOWNLOAD_BASE/SHA256SUMS.txt"
+
+curl -fsSL "$BINARY_URL" -o "$BIN_PATH"
 curl -fsSL "$CHECKSUMS_URL" -o "$CHECKSUMS_PATH"
 
 echo "Verifying checksum..."
 
-EXPECTED="$(grep " $ASSET" "$CHECKSUMS_PATH" | awk '{print $1}' | head -n 1)"
+EXPECTED="$(grep " $ASSET\$" "$CHECKSUMS_PATH" | awk '{print $1}' | head -n 1)"
 if [ -z "$EXPECTED" ]; then
   echo "Checksum entry not found for $ASSET"
   exit 1
@@ -59,6 +87,8 @@ fi
 
 if [ "$ACTUAL" != "$EXPECTED" ]; then
   echo "Checksum verification failed."
+  echo "  Expected: $EXPECTED"
+  echo "  Got:      $ACTUAL"
   exit 1
 fi
 
@@ -67,7 +97,7 @@ mkdir -p "$INSTALL_DIR"
 cp "$BIN_PATH" "$INSTALL_DIR/anty"
 chmod +x "$INSTALL_DIR/anty"
 
-echo "Installed successfully"
+echo "Installed successfully ($TAG)"
 
 case ":$PATH:" in
   *":$INSTALL_DIR:"*)
