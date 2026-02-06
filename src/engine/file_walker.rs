@@ -48,7 +48,7 @@ pub fn walk_files(
         match entry {
             Ok(entry) => {
                 // Only process files (not dirs)
-                if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+                if !entry.file_type().is_some_and(|ft| ft.is_file()) {
                     continue;
                 }
 

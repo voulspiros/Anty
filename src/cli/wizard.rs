@@ -142,8 +142,7 @@ fn screen_welcome() {
     }
 
     println!(
-        "  {}  {}",
-        "🐜",
+        "  🐜  {}",
         format!("v{}", env!("CARGO_PKG_VERSION")).dimmed()
     );
     println!();
@@ -191,8 +190,7 @@ fn screen_trust_folder() -> bool {
     println!();
     separator();
     println!(
-        "  {} {}",
-        "📂",
+        "  📂 {}",
         "Do you trust the files in this folder?".bold()
     );
     separator();
@@ -237,8 +235,7 @@ fn screen_quick_actions() -> QuickAction {
     println!();
     separator();
     println!(
-        "  {} {}",
-        "⚡",
+        "  ⚡ {}",
         "What would you like to do?".bold()
     );
     separator();

@@ -2,6 +2,7 @@ use clap::Subcommand;
 use std::path::PathBuf;
 
 #[derive(Subcommand, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Commands {
     /// Scan a directory for security issues
     Scan(ScanArgs),

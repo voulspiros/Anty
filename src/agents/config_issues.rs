@@ -40,7 +40,7 @@ impl ConfigPattern {
         match &self.file_types {
             FileTypeFilter::Any => true,
             FileTypeFilter::Languages(langs) => {
-                file.language.map_or(true, |l| langs.contains(&l))
+                file.language.is_none_or(|l| langs.contains(&l))
             }
             FileTypeFilter::ConfigFiles => {
                 matches!(
