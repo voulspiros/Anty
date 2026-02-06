@@ -1,14 +1,13 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use inquire::{Confirm, Select, Text};
 use owo_colors::OwoColorize;
 
 use crate::cli::{Cli, ScanArgs};
-use crate::config;
 use crate::engine::Scanner;
 use crate::report;
-use crate::rules;
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -21,6 +20,16 @@ const LOGO: &str = r#"
     ██║  ██║ ██║ ╚████║    ██║       ██║
     ╚═╝  ╚═╝ ╚═╝  ╚═══╝    ╚═╝       ╚═╝
 "#;
+
+/// File extensions we consider "binary" and skip in file pickers.
+const BINARY_EXTENSIONS: &[&str] = &[
+    "exe", "dll", "so", "dylib", "o", "a", "lib", "obj", "bin", "class",
+    "jar", "war", "ear", "pyc", "pyo", "wasm", "png", "jpg", "jpeg",
+    "gif", "bmp", "ico", "svg", "webp", "mp3", "mp4", "avi", "mov",
+    "mkv", "flac", "wav", "ogg", "zip", "tar", "gz", "bz2", "xz",
+    "7z", "rar", "iso", "dmg", "pdf", "doc", "docx", "xls", "xlsx",
+    "ppt", "pptx", "ttf", "otf", "woff", "woff2", "eot",
+];
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -41,6 +50,62 @@ fn press_enter(prompt: &str) {
 /// Print a horizontal separator.
 fn separator() {
     println!("{}", "━".repeat(60));
+}
+
+/// Expand a user-entered path: handle `~` and trim quotes.
+fn expand_path(input: &str) -> PathBuf {
+    let trimmed = input.trim().trim_matches('"').trim_matches('\'');
+
+    // Expand ~ on any OS
+    if trimmed.starts_with('~') {
+        if let Some(home) = home_dir() {
+            let rest = trimmed.strip_prefix("~/").or(trimmed.strip_prefix("~\\")).unwrap_or("");
+            return home.join(rest);
+        }
+    }
+
+    PathBuf::from(trimmed)
+}
+
+/// Best-effort home directory.
+fn home_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var("USERPROFILE").ok().map(PathBuf::from)
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var("HOME").ok().map(PathBuf::from)
+    }
+}
+
+/// Get a good starting directory for browsing.
+fn default_browse_dir() -> PathBuf {
+    #[cfg(windows)]
+    {
+        // Try Desktop first, then USERPROFILE, then cwd
+        if let Some(home) = home_dir() {
+            let desktop = home.join("Desktop");
+            if desktop.is_dir() {
+                return desktop;
+            }
+            return home;
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        if let Some(home) = home_dir() {
+            return home;
+        }
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// Check if a file extension looks binary.
+fn is_binary_ext(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|ext| BINARY_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
 }
 
 // ── Scan execution (reuses the engine) ──────────────────────────────
@@ -66,7 +131,6 @@ fn default_scan_args(path: &Path) -> ScanArgs {
 fn execute_scan(path: &Path) -> Result<()> {
     let args = default_scan_args(path);
 
-    // Minimal Cli struct to satisfy Scanner::new's signature.
     let cli = Cli {
         command: crate::cli::Commands::Scan(default_scan_args(path)),
         verbose: false,
@@ -102,20 +166,16 @@ fn execute_scan(path: &Path) -> Result<()> {
     println!();
 
     // Ask if the user wants a JSON report saved
-    print!("  {} ", "Save JSON report? (y/N):".bold());
-    io::stdout().flush().ok();
-    let answer = read_line();
+    let save = Confirm::new("Save JSON report?")
+        .with_default(false)
+        .prompt()
+        .unwrap_or(false);
 
-    if answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes") {
-        let default_name = "anty-report.json";
-        print!("  Filename [{}]: ", default_name.dimmed());
-        io::stdout().flush().ok();
-        let filename = read_line();
-        let filename = if filename.is_empty() {
-            default_name.to_string()
-        } else {
-            filename
-        };
+    if save {
+        let filename = Text::new("Filename:")
+            .with_default("anty-report.json")
+            .prompt()
+            .unwrap_or_else(|_| "anty-report.json".to_string());
 
         let json = report::json::render(&scan_report)?;
         std::fs::write(&filename, &json)?;
@@ -130,13 +190,226 @@ fn execute_scan(path: &Path) -> Result<()> {
     Ok(())
 }
 
+// ── Interactive pickers ─────────────────────────────────────────────
+
+/// B) Pick a target folder — text input or interactive browser.
+fn pick_target_folder() -> Result<PathBuf> {
+    println!();
+    separator();
+    println!(
+        "  📂 {}",
+        "Where do you want to scan?".bold()
+    );
+    separator();
+    println!();
+
+    loop {
+        let input = Text::new("Type a folder path (or press Enter to browse):")
+            .with_help_message("Paste a path, or leave empty to browse directories")
+            .prompt()
+            .context("Wizard cancelled")?;
+
+        if input.trim().is_empty() {
+            // Interactive folder browser
+            match browse_folders(default_browse_dir()) {
+                Ok(Some(p)) => return Ok(p),
+                Ok(None) => {
+                    // User cancelled browsing, re-prompt
+                    println!("  {}", "Browsing cancelled. Try typing a path instead.".dimmed());
+                    continue;
+                }
+                Err(e) => {
+                    println!("  {} {}", "⚠".yellow(), e);
+                    continue;
+                }
+            }
+        }
+
+        let path = expand_path(&input);
+        if path.is_dir() {
+            return Ok(std::fs::canonicalize(&path).unwrap_or(path));
+        } else if path.is_file() {
+            println!(
+                "  {} That's a file. Please enter a {} path.",
+                "⚠".yellow(),
+                "folder".bold()
+            );
+        } else {
+            println!(
+                "  {} \"{}\" does not exist. Please try again.",
+                "⚠".yellow(),
+                path.display()
+            );
+        }
+    }
+}
+
+/// Interactive folder browser using Select prompts.
+fn browse_folders(start: PathBuf) -> Result<Option<PathBuf>> {
+    let mut current = start;
+
+    loop {
+        let mut entries = vec![">>> [Select this folder] <<<".to_string()];
+        entries.push(".. (parent directory)".to_string());
+
+        // List subdirectories
+        let mut dirs: Vec<String> = Vec::new();
+        if let Ok(read_dir) = std::fs::read_dir(&current) {
+            for entry in read_dir.flatten() {
+                if let Ok(ft) = entry.file_type() {
+                    if ft.is_dir() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            // Skip hidden directories
+                            if !name.starts_with('.') {
+                                dirs.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        dirs.sort_by_key(|a| a.to_lowercase());
+
+        for d in &dirs {
+            entries.push(format!("📁 {d}"));
+        }
+
+        let prompt_msg = format!("Browse: {}", current.display());
+        let selection = Select::new(&prompt_msg, entries)
+            .with_help_message("↑/↓ navigate, Enter to open/select, Esc to cancel")
+            .prompt_skippable()
+            .context("Browse cancelled")?;
+
+        match selection {
+            None => return Ok(None), // Esc pressed
+            Some(ref s) if s.starts_with(">>> ") => {
+                return Ok(Some(current));
+            }
+            Some(ref s) if s.starts_with(".. ") => {
+                if let Some(parent) = current.parent() {
+                    current = parent.to_path_buf();
+                }
+            }
+            Some(ref s) if s.starts_with("📁 ") => {
+                let dir_name = s.trim_start_matches("📁 ");
+                current = current.join(dir_name);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// C) Trust prompt for a specific path.
+fn confirm_trust(target: &Path) -> bool {
+    println!();
+    separator();
+    println!(
+        "  🔒 {}",
+        "Do you trust the files in this folder?".bold()
+    );
+    separator();
+    println!();
+    println!("    {}", target.display().to_string().cyan().bold());
+    println!();
+    println!(
+        "  {}",
+        "Anty will read files in this folder to scan for security issues.".dimmed()
+    );
+    println!(
+        "  {}",
+        "It will NOT execute code.".dimmed()
+    );
+    println!();
+
+    Confirm::new("Proceed with scan?")
+        .with_default(true)
+        .prompt()
+        .unwrap_or(false)
+}
+
+/// D) Scope selection — scan whole folder or single file.
+#[derive(Debug, Clone, Copy)]
+enum ScanScope {
+    Folder,
+    SingleFile,
+}
+
+fn pick_scope() -> Result<ScanScope> {
+    let options = vec![
+        "Entire folder (all files)",
+        "A single file",
+    ];
+
+    let choice = Select::new("What do you want to scan?", options)
+        .with_help_message("↑/↓ navigate, Enter to select")
+        .prompt()
+        .context("Wizard cancelled")?;
+
+    if choice.starts_with("A single") {
+        Ok(ScanScope::SingleFile)
+    } else {
+        Ok(ScanScope::Folder)
+    }
+}
+
+/// E) Interactive file picker inside a directory.
+fn pick_single_file(dir: &Path) -> Result<Option<PathBuf>> {
+    let mut files: Vec<String> = Vec::new();
+
+    if let Ok(read_dir) = std::fs::read_dir(dir) {
+        for entry in read_dir.flatten() {
+            if let Ok(ft) = entry.file_type() {
+                if ft.is_file() {
+                    let path = entry.path();
+                    // Skip binary files
+                    if is_binary_ext(&path) {
+                        continue;
+                    }
+                    // Skip files > 2 MB
+                    if let Ok(meta) = entry.metadata() {
+                        if meta.len() > 2_097_152 {
+                            continue;
+                        }
+                    }
+                    if let Some(name) = entry.file_name().to_str() {
+                        if !name.starts_with('.') {
+                            files.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if files.is_empty() {
+        println!(
+            "  {} No scannable files found in {}",
+            "⚠".yellow(),
+            dir.display()
+        );
+        return Ok(None);
+    }
+
+    files.sort_by_key(|a| a.to_lowercase());
+
+    let prompt_msg = format!("Select a file from {}", dir.display());
+    let selection = Select::new(&prompt_msg, files)
+        .with_help_message("↑/↓ navigate, Enter to select, Esc to cancel")
+        .with_page_size(15)
+        .prompt_skippable()
+        .context("File selection cancelled")?;
+
+    match selection {
+        Some(name) => Ok(Some(dir.join(name))),
+        None => Ok(None),
+    }
+}
+
 // ── Wizard screens ──────────────────────────────────────────────────
 
 /// A) Welcome screen — large yellow ASCII logo
 fn screen_welcome() {
     println!();
-
-    // Print logo in yellow
     for line in LOGO.lines() {
         println!("{}", line.yellow().bold());
     }
@@ -183,100 +456,6 @@ fn screen_security_notes() {
     press_enter("  Press Enter to continue...");
 }
 
-/// C) Trust folder prompt — returns `true` if user trusts the folder.
-fn screen_trust_folder() -> bool {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-
-    println!();
-    separator();
-    println!(
-        "  📂 {}",
-        "Do you trust the files in this folder?".bold()
-    );
-    separator();
-    println!();
-    println!("    {}", cwd.display().to_string().cyan().bold());
-    println!();
-    println!(
-        "  {}",
-        "Anty will read files in this folder to scan for security issues.".dimmed()
-    );
-    println!(
-        "  {}",
-        "It will NOT execute code.".dimmed()
-    );
-    println!();
-    println!("    {} Yes, proceed", "1)".bold());
-    println!("    {} No, exit", "2)".bold());
-    println!();
-
-    loop {
-        print!("  Your choice [1/2]: ");
-        io::stdout().flush().ok();
-        let choice = read_line();
-        match choice.as_str() {
-            "1" | "yes" | "y" => return true,
-            "2" | "no" | "n" => return false,
-            _ => println!("  {}", "Please enter 1 or 2.".yellow()),
-        }
-    }
-}
-
-/// D) Quick-actions menu — returns the chosen action.
-enum QuickAction {
-    ScanCwd,
-    ScanPath(PathBuf),
-    InitConfig,
-    ListRules,
-    Exit,
-}
-
-fn screen_quick_actions() -> QuickAction {
-    println!();
-    separator();
-    println!(
-        "  ⚡ {}",
-        "What would you like to do?".bold()
-    );
-    separator();
-    println!();
-    println!("    {}  Scan current folder", "[1]".yellow().bold());
-    println!("    {}  Scan another folder", "[2]".yellow().bold());
-    println!("    {}  Initialize .anty.toml", "[3]".yellow().bold());
-    println!("    {}  List security rules", "[4]".yellow().bold());
-    println!("    {}  Exit", "[5]".yellow().bold());
-    println!();
-
-    loop {
-        print!("  Your choice [1-5]: ");
-        io::stdout().flush().ok();
-        let choice = read_line();
-        match choice.as_str() {
-            "1" => return QuickAction::ScanCwd,
-            "2" => {
-                print!("  Path to scan: ");
-                io::stdout().flush().ok();
-                let p = read_line();
-                let path = PathBuf::from(&p);
-                if path.is_dir() {
-                    return QuickAction::ScanPath(path);
-                } else {
-                    println!(
-                        "  {} \"{}\" is not a valid directory.",
-                        "⚠".yellow(),
-                        p
-                    );
-                    // re-prompt menu
-                }
-            }
-            "3" => return QuickAction::InitConfig,
-            "4" => return QuickAction::ListRules,
-            "5" => return QuickAction::Exit,
-            _ => println!("  {}", "Please enter a number from 1 to 5.".yellow()),
-        }
-    }
-}
-
 // ── Public entry-points ─────────────────────────────────────────────
 
 /// Interactive onboarding wizard (no-args mode).
@@ -289,41 +468,56 @@ pub fn run_wizard() -> Result<()> {
     // B) Security notes
     screen_security_notes();
 
-    // C) Trust folder
-    if !screen_trust_folder() {
+    // C) Target selection — user picks a folder
+    let target = match pick_target_folder() {
+        Ok(t) => t,
+        Err(_) => {
+            println!();
+            println!("  {}", "Wizard cancelled. Goodbye! 👋".dimmed());
+            press_enter("  Press Enter to exit...");
+            return Ok(());
+        }
+    };
+
+    // D) Trust prompt for the chosen target
+    if !confirm_trust(&target) {
         println!();
-        println!("  {}", "Goodbye! 👋".dimmed());
-        std::process::exit(0);
+        println!("  {}", "Scan cancelled. Goodbye! 👋".dimmed());
+        press_enter("  Press Enter to exit...");
+        return Ok(());
     }
 
-    // D) Quick actions
-    match screen_quick_actions() {
-        QuickAction::ScanCwd => {
-            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            execute_scan(&cwd)?;
-        }
-        QuickAction::ScanPath(p) => {
-            execute_scan(&p)?;
-        }
-        QuickAction::InitConfig => {
-            config::init_config()?;
+    // E) Scope selection
+    let scope = match pick_scope() {
+        Ok(s) => s,
+        Err(_) => {
             println!();
-            println!(
-                "  {} .anty.toml created in current directory.",
-                "✅".bold()
-            );
+            println!("  {}", "Wizard cancelled. Goodbye! 👋".dimmed());
+            press_enter("  Press Enter to exit...");
+            return Ok(());
         }
-        QuickAction::ListRules => {
-            println!();
-            rules::list_rules();
+    };
+
+    // F) Execute scan
+    match scope {
+        ScanScope::Folder => {
+            execute_scan(&target)?;
         }
-        QuickAction::Exit => {
-            println!();
-            println!("  {}", "Goodbye! 👋".dimmed());
+        ScanScope::SingleFile => {
+            match pick_single_file(&target) {
+                Ok(Some(file_path)) => {
+                    execute_scan(&file_path)?;
+                }
+                Ok(None) => {
+                    println!("  {}", "No file selected.".dimmed());
+                }
+                Err(_) => {
+                    println!("  {}", "File selection cancelled.".dimmed());
+                }
+            }
         }
     }
 
-    println!();
     press_enter("  Press Enter to exit...");
     Ok(())
 }
@@ -332,26 +526,19 @@ pub fn run_wizard() -> Result<()> {
 pub fn run_drag_drop(path: &Path) -> Result<()> {
     init_quiet_logging();
 
-    // Print a compact header
     println!();
     for line in LOGO.lines() {
         println!("{}", line.yellow().bold());
     }
     separator();
     println!();
-    println!(
-        "  Scan this folder?  {}",
-        path.display().to_string().cyan().bold()
-    );
-    println!();
-    print!("  {} ", "(Y/n):".bold());
-    io::stdout().flush().ok();
-    let answer = read_line();
 
-    if answer.is_empty()
-        || answer.eq_ignore_ascii_case("y")
-        || answer.eq_ignore_ascii_case("yes")
-    {
+    let proceed = Confirm::new(&format!("Scan this folder?  {}", path.display()))
+        .with_default(true)
+        .prompt()
+        .unwrap_or(false);
+
+    if proceed {
         execute_scan(path)?;
     } else {
         println!("  {}", "Scan cancelled.".dimmed());
