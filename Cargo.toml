@@ -1,0 +1,53 @@
+[package]
+name = "anty"
+version = "0.1.0"
+edition = "2021"
+description = "Developer-first security scanner — like a team of security reviewers reading your code"
+license = "MIT"
+keywords = ["security", "scanner", "cli", "secrets", "vulnerability"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive", "color"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Parallelism
+rayon = "1.10"
+
+# File walking (respects .gitignore)
+ignore = "0.4"
+
+# Regex for pattern matching (secrets, etc.)
+regex = "1"
+
+# Logging / diagnostics
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Terminal output
+owo-colors = "4"
+comfy-table = "7"
+
+# Hashing (for deterministic finding IDs)
+sha2 = "0.10"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Glob patterns for rules
+globset = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
